@@ -15,8 +15,12 @@ INIT_CONFIG_FILE="$PROJERCT_PATH/init_config.defconfig"
 DEFAULT_INIT_STATUS=n
 # TOOLCHAIN_STATUS=n
 # KERNEL_STATUS=n
+UBOOT_NAME="u-boot"
+KERNEL_NAME="linux-5.7.1"
+KERNEL_PATH="$PROJERCT_PATH/../$KERNEL_NAME"
+UBOOT_PATH="$PROJERCT_PATH/../$UBOOT_NAME"
 
-
+TOOlCHAIN_PATH="/opt/gcc-linaro-7.2.1-2017.11-x86_64_arm-linux-gnueabi"
 # 检查初始化状态
 check_init_status() {
     local init_status
@@ -58,21 +62,22 @@ check_toolchain_status() {
 
 # 下载并解压工具链
 download_and_extract_toolchain() {
-    # 下载工具链
-    # wget -P ./download http://releases.linaro.org/components/toolchain/binaries/7.2-2017.11/arm-linux-gnueabi/gcc-linaro-7.2.1-2017.11-x86_64_arm-linux-gnueabi.tar.xz
+    echo "下载工具链"
 
-    # tar -vxJf ./download/gcc-linaro-7.2.1-2017.11-x86_64_arm-linux-gnueabi.tar.xz
+    wget -P ./download http://releases.linaro.org/components/toolchain/binaries/7.2-2017.11/arm-linux-gnueabi/gcc-linaro-7.2.1-2017.11-x86_64_arm-linux-gnueabi.tar.xz
 
-    # sudo mv  gcc-linaro-7.2.1-2017.11-x86_64_arm-linux-gnueabi /opt/
+    tar -vxJf ./download/gcc-linaro-7.2.1-2017.11-x86_64_arm-linux-gnueabi.tar.xz
+
+    sudo mv  gcc-linaro-7.2.1-2017.11-x86_64_arm-linux-gnueabi /opt/
 
     # 将工具链路径写入 /etc/profile
-    sudo sh -c 'echo "export PATH=\$PATH:/opt/gcc-linaro-7.2.1-2017.11-x86_64_arm-linux-gnueabi/bin" >> /etc/profile'
+    sudo sh -c 'echo "export PATH=\$PATH:/opt/gcc-linaro-7.2.1-2017.11-x86_64_arm-linux-gnueabi/bin" > /etc/profile'
   
     # 查看 /etc/profile 的内容
     cat /etc/profile
 
     # 刷新环境变量
-    source /etc/profile
+    
 
     arm-linux-gnueabi-gcc -v
 
@@ -83,37 +88,73 @@ download_and_extract_toolchain() {
 # 解压 tar 文件
 extract_kernel() {
 
-    # wget -P ./download http://ftp.sjtu.edu.cn/sites/ftp.kernel.org/pub/linux/kernel/v6.x/linux-6.3.tar.gz
+    cd $PROJERCT_PATH
+    # wget -P ./download http://ftp.sjtu.edu.cn/sites/ftp.kernel.org/pub/linux/kernel/v5.x/linux-6.3.tar.gz
     # https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.13.7.tar.xz
     wget -P ./download https://mirrors.aliyun.com/linux-kernel/v5.x/linux-5.7.1.tar.gz
-    tar -zvxf ./download/linux-5.7.1.tar.gz -C  ./ 
+    tar -zvxf ./download/linux-5.7.1.tar.gz -C  ../ 
     update_kernel_status    
 }
         
 # 解压 tar 文件
 extract_uboot() {
 
-    # git clone https://github.com/Lichee-Pi/u-boot.git -b nano-v2018.01
-    # git checkout nano-lcd800480
+    cd $PROJERCT_PATH/../
+    git clone https://github.com/Lichee-Pi/u-boot.git -b nano-v2018.01
+    
     update_init_status
-    cd $PROJERCT_PATH
+   
 }
 
-# 更新初始化状态为已完成
 update_init_status() {
-    echo "CONFIG_INIT_STATUS=y" > "$INIT_CONFIG_FILE"
+    local status=$1
+    echo "CONFIG_INIT_STATUS=$status" > "$INIT_CONFIG_FILE"
 }
 
 # 更新工具链状态为已完成
 update_toolchain_status() {
-    echo "TOOLCHAIN_STATUS=y" >> "$INIT_CONFIG_FILE"
+    local status=$1
+    echo "TOOLCHAIN_STATUS=$status" >> "$INIT_CONFIG_FILE"
 }
 
 # 更新工具链状态为已完成
 update_kernel_status() {
-    echo "KERNEL_STATUS=y" >> "$INIT_CONFIG_FILE"
+    local status=$1
+    echo "KERNEL_STATUS=$status" >> "$INIT_CONFIG_FILE"
 }
+check_env(){
 
+    if [ -d "$UBOOT_PATH" ]; then
+        # 如果存在，更新 CONFIG_INIT_STATUS 为 y
+        echo "U-BOOT 已存在，更新配置文件。"
+        update_init_status y
+    else
+        # 如果不存在，更新 CONFIG_INIT_STATUS 为 n
+        echo "U-BOOT 不存在，更新配置文件。"
+        update_init_status n
+    fi
+
+    if [ -d "$TOOlCHAIN_PATH" ]; then
+        # 如果存在，更新 TOOLCHAIN_STATUS 为 y
+        echo "TOOLCHAIN 已存在，更新配置文件。"
+        update_toolchain_status y
+    else
+        # 如果不存在，更新 TOOLCHAIN_STATUS 为 n
+        echo "TOOLCHAIN 不存在，更新配置文件。"
+        update_toolchain_status n
+    fi
+
+    if [ -d "$KERNEL_PATH" ]; then
+        # 如果存在，更新 KERNEL_STATUS 为 y
+        echo "kernel 已存在，更新配置文件。"
+        update_kernel_status y
+    else
+        # 如果不存在，更新 KERNEL_STATUS 为 n
+        echo "kernel 不存在，更新配置文件。"
+        update_kernel_status n
+    fi
+
+}
 # 复制文件
 copy_files() {
     cd $PROJERCT_PATH
@@ -129,15 +170,27 @@ config() {
     sudo apt-get install gcc make cmake rsync wget unzip build-essential git bc swig libncurses-dev libpython3-dev libssl-dev python3-distutils android-tools-mkbootimg -y
 
     echo "执行配置任务..."
+
+    check_env
+
+    echo "INIT_CONFIG_FILE: $INIT_CONFIG_FILE"
+    cat "$INIT_CONFIG_FILE"
+
+    local init_status=$(check_init_status)
+    local toolchain_status=$(check_toolchain_status)
+    local kernel_status=$(check_kernel_status)
+
     # 在这里添加配置相关的命令
     if [ "$init_status" = "y" ]; then
-                echo "U-BOOT Ready finish!，跳过。"
+          echo "U-BOOT Ready finish!，跳过。"
     else
         echo "开始解压..."
         extract_uboot
         echo "初始化完成，已更新配置文件。"
     fi
 
+
+    
     if [ "$toolchain_status" = "y" ]; then
                 echo "工具链已下载，跳过下载步骤。"
     else
@@ -145,17 +198,19 @@ config() {
         download_and_extract_toolchain
         echo "Download finished。"
     fi
+    
 
     if [ "$kernel_status" = "y" ]; then
-                echo "工具链已下载，跳过下载步骤。"
+                echo "工具链已下载，跳过下载步骤。"i
     else
         echo "Download kernel..."
         extract_kernel
         echo "finished!"
     fi
-
+    source /etc/profile
     echo "开始复制文件..."
     copy_files
+    
     echo "文件复制完成。"
 }
 
@@ -163,7 +218,7 @@ config() {
 make_uboot() {
     
     echo "开始编译 U-Boot..."
-    cd $PROJERCT_PATH/u-boot
+    cd $UBOOT_PATH
     make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- licheepi_nano_defconfig
     make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- -j4
 
@@ -174,15 +229,16 @@ make_uboot() {
 make_kernel() {
     
     echo "开始编译内核..."
-    cd $PROJERCT_PATH/linux-5.7.1
-   
+    cd $KERNEL_PATH
+    make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- licheepi_nano_defconfig
+    make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- -j4
 
 }
 
 # 清理 U-Boot 函数
 clean_uboot() {
     echo "清理 U-Boot..."
-    cd $PROJERCT_PATH/u-boot-2023.04
+    cd $UBOOT_PATH
     make clean
     make distclean
     # 在这里添加清理 U-Boot 的命令
@@ -206,10 +262,7 @@ to_git() {
     cd $PROJERCT_PATH
     sudo rm -r ./download/* 
     sudo rm init_config.defconfig
-    sudo rm -r  linux-5.7.1
-    sudo rm -r  u-boot-2023.04
     
-   
 }
 
 pack() {
@@ -228,9 +281,9 @@ all_in_one() {
 }
 # 主函数
 main() {
-    local init_status=$(check_init_status)
-    local toolchain_status=$(check_toolchain_status)
-    local kernel_status=$(check_kernel_status)
+    
+
+
     case "$1" in
         config)
             config
