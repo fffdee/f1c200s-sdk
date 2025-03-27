@@ -79,8 +79,7 @@ download_and_extract_toolchain() {
     # 刷新环境变量
     
 
-    arm-linux-gnueabi-gcc -v
-
+    
     # 更新工具链状态
     update_toolchain_status
 }
@@ -133,6 +132,16 @@ check_env(){
         echo "U-BOOT 不存在，更新配置文件。"
         update_init_status n
     fi
+    if [ -f "/usr/bin/python" ]; then
+        # 如果存在，更新 CONFIG_INIT_STATUS 为 y
+        echo "python env is ok!"
+     
+    else
+        # 如果不存在，更新 CONFIG_INIT_STATUS 为 n
+        echo "Set python"
+        sudo ln -s /usr/bin/python2 /usr/bin/python
+    fi
+
 
     if [ -d "$TOOlCHAIN_PATH" ]; then
         # 如果存在，更新 TOOLCHAIN_STATUS 为 y
@@ -158,7 +167,8 @@ check_env(){
 # 复制文件
 copy_files() {
     cd $PROJERCT_PATH
-   
+    cp ./modify/dtc-lexer.lex.c  $UBOOT_PATH/scripts/dtc/dtc-lexer.lex.c
+    cp ./modify/Makefile.lib    $UBOOT_PATH/scripts/Makefile.lib 
 }
 
 # 配置函数
@@ -167,7 +177,7 @@ config() {
     echo "Get workable env..."
     sudo apt update
     sudo apt install u-boot-tools libssl-dev  bison flex -y
-    sudo apt-get install gcc make cmake rsync wget unzip build-essential git bc swig libncurses-dev libpython3-dev libssl-dev python3-distutils android-tools-mkbootimg -y
+    sudo apt-get install gcc make cmake rsync wget unzip build-essential git bc swig libncurses-dev libpython3-dev libssl-dev python3-distutils android-tools-mkbootimg python2-dev -y
 
     echo "执行配置任务..."
 
@@ -207,7 +217,10 @@ config() {
         extract_kernel
         echo "finished!"
     fi
+
     source /etc/profile
+    arm-linux-gnueabi-gcc -v
+
     echo "开始复制文件..."
     copy_files
     
