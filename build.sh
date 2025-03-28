@@ -19,6 +19,7 @@ UBOOT_NAME="u-boot"
 KERNEL_NAME="linux-5.7.1"
 KERNEL_PATH="$PROJERCT_PATH/../$KERNEL_NAME"
 UBOOT_PATH="$PROJERCT_PATH/../$UBOOT_NAME"
+ENV_PATH="/etc/profile"
 
 TOOlCHAIN_PATH="/opt/gcc-linaro-7.2.1-2017.11-x86_64_arm-linux-gnueabi"
 # 检查初始化状态
@@ -71,7 +72,15 @@ download_and_extract_toolchain() {
     sudo mv  gcc-linaro-7.2.1-2017.11-x86_64_arm-linux-gnueabi /opt/
 
     # 将工具链路径写入 /etc/profile
-    sudo sh -c 'echo "export PATH=\$PATH:/opt/gcc-linaro-7.2.1-2017.11-x86_64_arm-linux-gnueabi/bin" > /etc/profile'
+    
+    if grep -q "$TOOlCHAIN_PATH" "$ENV_PATH"; then
+        echo " '$TOOlCHAIN_PATH' 存在于文件 $ENV_PATH 中"
+    else
+        echo "'$TOOlCHAIN_PATH' 不存在于文件 $ENV_PATH 中"
+        sudo sh -c 'echo "export PATH=\$PATH:/opt/gcc-linaro-7.2.1-2017.11-x86_64_arm-linux-gnueabi/bin" > '$ENV_PATH
+    fi
+
+    
   
     # 查看 /etc/profile 的内容
     cat /etc/profile
@@ -161,6 +170,13 @@ check_env(){
         # 如果不存在，更新 KERNEL_STATUS 为 n
         echo "kernel 不存在，更新配置文件。"
         update_kernel_status n
+    fi
+
+    if grep -q "$PROJERCT_PATH" "$ENV_PATH"; then
+        echo " '$PROJERCT_PATH' 存在于文件 $ENV_PATH 中"
+    else
+        echo "'$PROJERCT_PATH' 不存在于文件 $ENV_PATH 中"
+        sudo sh -c "echo \"export BANFIC_PATH=${PROJERCT_PATH}\" >> ${ENV_PATH}"
     fi
 
 }
