@@ -185,6 +185,7 @@ copy_files() {
     cd $PROJERCT_PATH
     cp ./modify/dtc-lexer.lex.c  $UBOOT_PATH/scripts/dtc/dtc-lexer.lex.c
     cp ./modify/Makefile.lib    $UBOOT_PATH/scripts/Makefile.lib 
+    cp ./modify/BanNano_defconfig $KERNEL_PATH/arch/arm/configs
 }
 
 # 配置函数
@@ -259,7 +260,7 @@ make_kernel() {
     
     echo "开始编译内核..."
     cd $KERNEL_PATH
-    make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- licheepi_nano_defconfig
+    make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- BanNano_defconfig
     make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- -j4
 
 }
