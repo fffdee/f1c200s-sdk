@@ -8,6 +8,7 @@
 # rkdeveloptool wl 0x40000 ubuntu_ext4.img
 
 set -e
+
 PROJERCT_PATH=$(pwd)
 # 初始化配置文件路径
 INIT_CONFIG_FILE="$PROJERCT_PATH/init_config.defconfig"
@@ -17,8 +18,10 @@ DEFAULT_INIT_STATUS=n
 # KERNEL_STATUS=n
 UBOOT_NAME="u-boot"
 KERNEL_NAME="linux-5.7.1"
+ROOTFS_NAME="debian"
 KERNEL_PATH="$PROJERCT_PATH/../$KERNEL_NAME"
 UBOOT_PATH="$PROJERCT_PATH/../$UBOOT_NAME"
+ROOTFS_PATH="$PROJERCT_PATH/../$ROOTFS_NAME"
 ENV_PATH="/etc/profile"
 
 TOOlCHAIN_PATH="/opt/gcc-linaro-7.2.1-2017.11-x86_64_arm-linux-gnueabi"
@@ -61,6 +64,21 @@ check_toolchain_status() {
     echo "$toolchain_status"
 }
 
+
+# 检查工具链状态
+check_rootfs_status() {
+    local rootfs_status
+    if [ -f "$INIT_CONFIG_FILE" ]; then
+        # 读取工具链状态
+        rootfs_status=$(grep "ROOTFS_STATUS" "$INIT_CONFIG_FILE" | awk -F '=' '{print $2}' | tr -d ' ')
+    else
+        # 如果配置文件不存在，工具链状 
+态为默认值
+        rootfs_status=$DEFAULT_INIT_STATUS
+    fi
+    echo "$rootfs_status"
+}
+
 # 下载并解压工具链
 download_and_extract_toolchain() {
     echo "下载工具链"
@@ -76,7 +94,7 @@ download_and_extract_toolchain() {
     if grep -q "$TOOlCHAIN_PATH" "$ENV_PATH"; then
         echo " '$TOOlCHAIN_PATH' 存在于文件 $ENV_PATH 中"
     else
-        echo "'$TOOlCHAIN_PATH' 不存在于文件 $ENV_PATH 中"
+        echo "'$TOOlCHAIN_PATH' 不存在于文件$ROOTFS_NAME $ENV_PATH 中"
         sudo sh -c 'echo "export PATH=\$PATH:/opt/gcc-linaro-7.2.1-2017.11-x86_64_arm-linux-gnueabi/bin" > '$ENV_PATH
     fi
 
@@ -113,6 +131,113 @@ extract_uboot() {
     update_init_status
    
 }
+ready_rootfs() {
+
+    # 进入项目路径的上一级目录
+    cd "$PROJERCT_PATH/../"
+
+    # 使用 debootstrap 创建一个 Debian 系统的根文件系统
+    sudo debootstrap --foreign --verbose --arch=armel bookworm ./"$ROOTFS_NAME" http://mirrors.tuna.tsinghua.edu.cn/debian/
+
+ 
+    ./debian/debootstrap/debootstrap --second-stage  
+    
+    sudo mount -t proc /proc  "$ROOTFS_NAME/proc"
+    sudo mount -t sysfs /sys  "$ROOTFS_NAME/sys"
+    sudo mount -o bind /dev  "$ROOTFS_NAME/dev"
+    sudo mount -o bind /dev/pts  "$ROOTFS_NAME/dev/pts"
+    # 进入 chroot 环境
+    sudo chroot "$ROOTFS_NAME" /bin/bash
+
+  
+
+    echo "chroot"
+    exit
+    echo "exit"
+    # 挂载必要的文件系统
+    sudo mount -t proc /proc  "$ROOTFS_NAME/proc"
+    sudo mount -t sysfs /sys  "$ROOTFS_NAME/sys"
+    sudo mount -o bind /dev  "$ROOTFS_NAME/dev"
+    sudo mount -o bind /dev/pts  "$ROOTFS_NAME/dev/pts"
+
+    sudo chroot "$ROOTFS_NAME" /bin/bash
+
+    # 替换 apt 的源列表
+
+    sudo mv "$ROOTFS_NAME/etc/apt/sources.list" "$ROOTFS_NAME/etc/apt/sources.list.old"
+    sudo touch "$ROOTFS_NAME/etc/apt/sources.list"
+    sudo tee "$ROOTFS_NAME/etc/apt/sources.list" <<EOF
+deb http://mirrors.tuna.tsinghua.edu.cn/debian/ bookworm main restricted universe multiverse
+deb http://mirrors.tuna.tsinghua.edu.cn/debian/ bookworm-updates main restricted universe multiverse
+deb http://mirrors.tuna.tsinghua.edu.cn/debian/ bookworm-backports main restricted universe multiverse
+deb http://mirrors.tuna.tsinghua.edu.cn/debian/ bookworm-security main restricted universe multiverse
+EOF
+    apt-get update
+    apt-get install --no-install-recommends -y util-linux openssh-server initramfs-tools mount vim neofetch sudo
+    cat /etc/network/interface >>/etc/network/interfaces <<EOF
+auto lo
+iface lo inet loopback
+
+auto eth0
+iface eth0 inet dhcp
+EOF
+
+cat >/etc/resolv.conf <<EOF
+nameserver 114.114.114.114
+nameserver 8.8.8.8
+EOF
+
+echo 'BanGO-$ROOTFS_NAME' > /etc/hostname
+echo "127.0.0.1 localhost" > /etc/hosts
+echo "127.0.0.1 BanGO-$ROOTFS_NAME" >> /etc/hosts
+#一个大于号是覆盖写，两个大于号是追加写
+
+
+
+#添加用户和设置密码
+useradd -s '/bin/bash' -m -G adm,sudo bango
+passwd bango
+passwd root
+
+chown root:root /usr/bin/sudo
+chmod 4755 /usr/bin/sudo
+sed -i "s/#PermitRootLogin.*/PermitRootLogin yes/g" /etc/ssh/sshd_config
+
+#分区配置
+cat >/etc/fstab <<EOF
+# <file system>        <mount pt>        <type>        <options>        <dump>        <pass>
+/dev/root        /                ext2        rw,noauto        0        1
+proc                /proc                proc        defaults        0        0
+devpts                /dev/pts        devpts        defaults,gid=5,mode=620,ptmxmode=0666        0        0
+tmpfs                /dev/shm        tmpfs        mode=0777        0        0
+tmpfs                /tmp                tmpfs        mode=1777        0        0
+tmpfs                /run                tmpfs        mode=0755,nosuid,nodev        0        0
+sysfs                /sys                sysfs        defaults        0        0
+EOF
+
+cat > /etc/wifi/wpa_supplicant.conf <<EOF
+ctrl_interface=/var/run/wpa_supplicant
+ctrl_interface_group=0
+update_config=1
+network={
+        ssid="BanGO"
+        psk="88888888"
+}
+EOF
+
+umount /dev/pts/ /dev/ /proc/ /sys
+
+
+exit
+
+sudo tar -cSf rootfs_$ROOTFS_NAME.tar -C $ROOTFS_NAME .
+ 
+
+
+}
+
+
+
 
 update_init_status() {
     local status=$1
@@ -130,6 +255,12 @@ update_kernel_status() {
     local status=$1
     echo "KERNEL_STATUS=$status" >> "$INIT_CONFIG_FILE"
 }
+
+update_rootfs_status() {
+    local status=$1
+    echo "ROOTFS_STATUS=$status" >> "$INIT_CONFIG_FILE"
+}
+
 check_env(){
 
     if [ -d "$UBOOT_PATH" ]; then
@@ -172,6 +303,16 @@ check_env(){
         update_kernel_status n
     fi
 
+    if [ -d "$ROOTFS_PATH" ]; then
+        # 如果存在，更新 KERNEL_STATUS 为 y
+        echo "rootfs已存在，更新配置文件。"
+        update_rootfs_status y
+    else
+        # 如果不存在，更新 KERNEL_STATUS 为 n
+        echo "rootfs 不存在，更新配置文件。"
+        update_rootfs_status n
+    fi
+
     if grep -q "$PROJERCT_PATH" "$ENV_PATH"; then
         echo " '$PROJERCT_PATH' 存在于文件 $ENV_PATH 中"
     else
@@ -194,7 +335,7 @@ config() {
     echo "Get workable env..."
     sudo apt update
     sudo apt install u-boot-tools libssl-dev  bison flex -y
-    sudo apt-get install gcc make cmake rsync wget unzip build-essential git bc swig libncurses-dev libpython3-dev libssl-dev python3-distutils android-tools-mkbootimg python2-dev -y
+    sudo apt-get install gcc make cmake rsync wget unzip build-essential git bc swig libncurses-dev libpython3-dev libssl-dev python3-distutils android-tools-mkbootimg python2-dev debootstrap qemu qemu-user-static binfmt-support dpkg-cross --no-install-recommends -y
 
     echo "执行配置任务..."
 
@@ -206,6 +347,7 @@ config() {
     local init_status=$(check_init_status)
     local toolchain_status=$(check_toolchain_status)
     local kernel_status=$(check_kernel_status)
+    local rootfs_status=$(check_rootfs_status)
 
     # 在这里添加配置相关的命令
     if [ "$init_status" = "y" ]; then
@@ -228,10 +370,18 @@ config() {
     
 
     if [ "$kernel_status" = "y" ]; then
-                echo "工具链已下载，跳过下载步骤。"i
+                echo "Kernel已下载，跳过下载步骤。"i
     else
         echo "Download kernel..."
         extract_kernel
+        echo "finished!"
+    fi
+
+    if [ "$rootfs_status" = "y" ]; then
+        echo "rootfs is ok，跳过步骤。"i
+    else
+        echo "$ROOTFS_NAME readying..."
+        ready_rootfs
         echo "finished!"
     fi
 
