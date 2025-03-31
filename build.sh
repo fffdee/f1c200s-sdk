@@ -7,7 +7,7 @@
 # rkdeveloptool wl 0x8000 boot.itb
 # rkdeveloptool wl 0x40000 ubuntu_ext4.img
 
-set -e
+# set -e
 
 PROJERCT_PATH=$(pwd)
 # 初始化配置文件路径
@@ -25,6 +25,20 @@ ROOTFS_PATH="$PROJERCT_PATH/../$ROOTFS_NAME"
 ENV_PATH="/etc/profile"
 
 TOOlCHAIN_PATH="/opt/gcc-linaro-7.2.1-2017.11-x86_64_arm-linux-gnueabi"
+
+DTB_NAME="BanNano.dtb"
+
+# 设置镜像文件名和大小
+# 定义变量
+IMG_FILE="BanNano.img"
+IMG_SIZE=2G
+PART1_SIZE=32M
+PART1_OFFSET=1M
+ZIMAGE_FILE="zImage"
+DTB_FILE="BanNano.dtb"
+BOOT_SCR_FILE="boot.scr"
+ROOTFS_TAR="rootfs_debian.tar"
+
 # 检查初始化状态
 check_init_status() {
     local init_status
@@ -136,107 +150,101 @@ ready_rootfs() {
     # 进入项目路径的上一级目录
     cd "$PROJERCT_PATH/../"
 
-    # 使用 debootstrap 创建一个 Debian 系统的根文件系统
-    sudo debootstrap --foreign --verbose --arch=armel bookworm ./"$ROOTFS_NAME" http://mirrors.tuna.tsinghua.edu.cn/debian/
+ # 设置目标目录
+TARGET_DIR="./debian"
 
- 
-    ./debian/debootstrap/debootstrap --second-stage  
-    
-    sudo mount -t proc /proc  "$ROOTFS_NAME/proc"
-    sudo mount -t sysfs /sys  "$ROOTFS_NAME/sys"
-    sudo mount -o bind /dev  "$ROOTFS_NAME/dev"
-    sudo mount -o bind /dev/pts  "$ROOTFS_NAME/dev/pts"
-    # 进入 chroot 环境
-    sudo chroot "$ROOTFS_NAME" /bin/bash
+# 设置Debian版本和架构
+DEBIAN_VERSION="bookworm"  # 替换为所需的Debian版本，如bullseye、buster等
+ARCH="armel"               # 替换为所需的架构，如i386、arm64等
 
-  
+# 设置软件源
+MIRROR="http://mirrors.tuna.tsinghua.edu.cn/debian/"
 
-    echo "chroot"
-    exit
-    echo "exit"
-    # 挂载必要的文件系统
-    sudo mount -t proc /proc  "$ROOTFS_NAME/proc"
-    sudo mount -t sysfs /sys  "$ROOTFS_NAME/sys"
-    sudo mount -o bind /dev  "$ROOTFS_NAME/dev"
-    sudo mount -o bind /dev/pts  "$ROOTFS_NAME/dev/pts"
+# 设置用户信息
+USERNAME="bango"
+PASSWORD="12345616"  # 注意：在实际使用中，建议使用更安全的密码设置方式
 
-    sudo chroot "$ROOTFS_NAME" /bin/bash
+# 检查是否为root用户
 
-    # 替换 apt 的源列表
+# 安装debootstrap
+echo "安装debootstrap..."
+sudo apt update
+sudo apt install -y debootstrap
 
-    sudo mv "$ROOTFS_NAME/etc/apt/sources.list" "$ROOTFS_NAME/etc/apt/sources.list.old"
-    sudo touch "$ROOTFS_NAME/etc/apt/sources.list"
-    sudo tee "$ROOTFS_NAME/etc/apt/sources.list" <<EOF
-deb http://mirrors.tuna.tsinghua.edu.cn/debian/ bookworm main restricted universe multiverse
-deb http://mirrors.tuna.tsinghua.edu.cn/debian/ bookworm-updates main restricted universe multiverse
-deb http://mirrors.tuna.tsinghua.edu.cn/debian/ bookworm-backports main restricted universe multiverse
-deb http://mirrors.tuna.tsinghua.edu.cn/debian/ bookworm-security main restricted universe multiverse
-EOF
-    apt-get update
-    apt-get install --no-install-recommends -y util-linux openssh-server initramfs-tools mount vim neofetch sudo
-    cat /etc/network/interface >>/etc/network/interfaces <<EOF
-auto lo
-iface lo inet loopback
+# 创建目标目录
+echo "创建目标目录..."
+mkdir -p "$TARGET_DIR"
 
-auto eth0
-iface eth0 inet dhcp
-EOF
+# 使用debootstrap创建基础系统
+echo "使用debootstrap创建基础系统..."
+sudo debootstrap --arch="$ARCH" "$DEBIAN_VERSION" "$TARGET_DIR" "$MIRROR"
 
-cat >/etc/resolv.conf <<EOF
-nameserver 114.114.114.114
-nameserver 8.8.8.8
-EOF
+# 检查debootstrap是否成功
+if [ $? -ne 0 ]; then
+    echo "debootstrap执行失败，请检查错误信息。"
+    exit 1
+fi
 
-echo 'BanGO-$ROOTFS_NAME' > /etc/hostname
-echo "127.0.0.1 localhost" > /etc/hosts
-echo "127.0.0.1 BanGO-$ROOTFS_NAME" >> /etc/hosts
-#一个大于号是覆盖写，两个大于号是追加写
+# 挂载必要的文件系统
+echo "挂载必要的文件系统..."
+sudo mount --bind /dev "$TARGET_DIR/dev"
+sudo mount --bind /proc "$TARGET_DIR/proc"
+sudo mount --bind /sys "$TARGET_DIR/sys"
 
+# 进入chroot环境
+echo "进入chroot环境进行配置..."
+sudochroot "$TARGET_DIR" /bin/bash <<EOF
+# 更新软件源
+echo "更新软件源..."
+cat > /etc/apt/sources.list <<EOL
+deb $MIRROR $DEBIAN_VERSION main contrib non-free
+deb-src $MIRROR $DEBIAN_VERSION main contrib non-free
+EOL
 
+# 更新包列表
+apt update
 
-#添加用户和设置密码
-useradd -s '/bin/bash' -m -G adm,sudo bango
-passwd bango
-passwd root
+# 安装常用的软件包
+echo "安装常用的软件包..."
+apt install -y vim sudo openssh-server locales
 
-chown root:root /usr/bin/sudo
-chmod 4755 /usr/bin/sudo
-sed -i "s/#PermitRootLogin.*/PermitRootLogin yes/g" /etc/ssh/sshd_config
+# 设置时区
+echo "设置时区为Asia/Shanghai..."
+ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
+dpkg-reconfigure -f noninteractive tzdata
 
-#分区配置
-cat >/etc/fstab <<EOF
-# <file system>        <mount pt>        <type>        <options>        <dump>        <pass>
-/dev/root        /                ext2        rw,noauto        0        1
-proc                /proc                proc        defaults        0        0
-devpts                /dev/pts        devpts        defaults,gid=5,mode=620,ptmxmode=0666        0        0
-tmpfs                /dev/shm        tmpfs        mode=0777        0        0
-tmpfs                /tmp                tmpfs        mode=1777        0        0
-tmpfs                /run                tmpfs        mode=0755,nosuid,nodev        0        0
-sysfs                /sys                sysfs        defaults        0        0
-EOF
+# 设置语言环境
+echo "设置语言环境为en_US.UTF-8..."
+locale-gen en_US.UTF-8
+update-locale LANG=en_US.UTF-8
 
-cat > /etc/wifi/wpa_supplicant.conf <<EOF
-ctrl_interface=/var/run/wpa_supplicant
-ctrl_interface_group=0
-update_config=1
-network={
-        ssid="BanGO"
-        psk="88888888"
-}
+# 创建用户
+echo "创建用户$USERNAME..."
+adduser --disabled-password --gecos "" "$USERNAME"
+echo "$USERNAME:$PASSWORD" | chpasswd
+
+# 添加用户到sudo组
+usermod -aG sudo "$USERNAME"
+
+# 配置SSH
+echo "配置SSH..."
+sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin no/' /etc/ssh/sshd_config
+sed -i 's/#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config
+service ssh restart
+
+# 清理
+apt clean
 EOF
 
-umount /dev/pts/ /dev/ /proc/ /sys
+# 卸载挂载的文件系统
+echo "卸载挂载的文件系统..."
+sudo umount "$TARGET_DIR/dev"
+sudo umount "$TARGET_DIR/proc"
+sudo umount "$TARGET_DIR/sys"
 
-
-exit
-
-sudo tar -cSf rootfs_$ROOTFS_NAME.tar -C $ROOTFS_NAME .
- 
-
+echo "Debian系统构建完成！目标目录为$TARGET_DIR"
 
 }
-
-
 
 
 update_init_status() {
@@ -334,8 +342,9 @@ config() {
 
     echo "Get workable env..."
     sudo apt update
-    sudo apt install u-boot-tools libssl-dev  bison flex -y
-    sudo apt-get install gcc make cmake rsync wget unzip build-essential git bc swig libncurses-dev libpython3-dev libssl-dev python3-distutils android-tools-mkbootimg python2-dev debootstrap qemu qemu-user-static binfmt-support dpkg-cross --no-install-recommends -y
+    sudo apt install u-boot-tools libssl-dev  bison flex debian-archive-keyring -y
+    sudo apt-get install gcc make cmake rsync wget unzip build-essential git bc swig libncurses-dev libpython3-dev  --no-install-recommends -y
+    sudo apt-get install libssl-dev python3-distutils android-tools-mkbootimg python2-dev debootstrap qemu qemu-user-static binfmt-support dpkg-cross -y
 
     echo "执行配置任务..."
 
@@ -397,12 +406,15 @@ config() {
 # 编译 U-Boot 函数
 make_uboot() {
     
+    # 在这里添加编译 U-Boot 的命令
     echo "开始编译 U-Boot..."
     cd $UBOOT_PATH
     make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- licheepi_nano_defconfig
     make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- -j4
+    cp u-boot-sunxi-with-spl.bin $PROJERCT_PATH/../out/ 
 
-    # 在这里添加编译 U-Boot 的命令
+
+    
 }
 
 # 编译内核函数
@@ -412,6 +424,21 @@ make_kernel() {
     cd $KERNEL_PATH
     make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- BanNano_defconfig
     make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- -j4
+    cp arch/arm/boot/zImage $PROJERCT_PATH/../out
+    cp arch/arm/boot/dts/suniv-f1c100s-licheepi-nano.dtb $PROJERCT_PATH/../out/$DTB_NAME
+    
+    
+}
+
+# 编译内核函数
+pack_rootfs() {
+    
+  
+    cd $PROJERCT_PATH/../
+    echo "开始打包......"
+    sudo tar -cSf rootfs_$ROOTFS_NAME.tar -C $ROOTFS_NAME .
+    mkdir -p ./out
+    sudo mv rootfs_$ROOTFS_NAME.tar ./out
 
 }
 
@@ -445,10 +472,99 @@ to_git() {
     
 }
 
+make_img (){
+
+cd $PROJERCT_PATH/../out
+
+touch boot.cmd
+
+# 向 boot.cmd 文件中写入内容
+cat > boot.cmd <<EOF
+setenv bootargs console=tty0 console=ttyS0,115200 panic=5 rootwait root=/dev/mmcblk0p2 rw 
+load mmc 0:1 0x80C00000 $DTB_NAME
+load mmc 0:1 0x80008000 zImage
+bootz 0x80008000 - 0x80C00000
+EOF
+
+# 创建空的.img文件
+echo "创建空的.img文件..."
+dd if=/dev/zero of="$IMG_FILE" bs=1M count=0 seek=$(echo "$IMG_SIZE" | sed 's/G/*1024/' | bc)
+
+# 使用fdisk划分分区
+echo "划分分区..."
+fdisk "$IMG_FILE" <<EOF
+o
+n
+p
+1
+$(($PART1_OFFSET / 512))
++$(($PART1_SIZE / 512))
+n
+p
+2
+$(($PART1_OFFSET / 512 + $PART1_SIZE / 512))
+w
+EOF
+
+# 检查分区表
+echo "分区表已创建，以下是分区信息："
+fdisk -l "$IMG_FILE"
+
+# 设置环回设备
+echo "设置环回设备..."
+LOOP_DEVICE=$(sudo losetup --find --show --partscan "$IMG_FILE")
+PART1_DEVICE="${LOOP_DEVICE}p1"
+PART2_DEVICE="${LOOP_DEVICE}p2"
+
+# 格式化分区
+echo "格式化第一个分区为FAT16..."
+sudo mkfs.fat -F 16 "$PART1_DEVICE"
+
+echo "格式化第二个分区为ext4..."
+sudo mkfs.ext4 "$PART2_DEVICE"
+
+# 挂载分区
+echo "挂载分区..."
+MOUNT_DIR1=$(mktemp -d)
+MOUNT_DIR2=$(mktemp -d)
+sudo mount "$PART1_DEVICE" "$MOUNT_DIR1"
+sudo mount "$PART2_DEVICE" "$MOUNT_DIR2"
+
+# 将文件拷贝到第一个分区
+echo "将文件拷贝到第一个分区..."
+sudo cp "$ZIMAGE_FILE" "$MOUNT_DIR1/"
+sudo cp "$DTB_FILE" "$MOUNT_DIR1/"
+sudo cp "$BOOT_SCR_FILE" "$MOUNT_DIR1/"
+
+# 将rootfs.tar解压到第二个分区
+echo "将rootfs.tar解压到第二个分区..."
+sudo tar -xvf "$ROOTFS_TAR" -C "$MOUNT_DIR2"
+
+# 卸载分区
+echo "卸载分区..."
+sudo umount "$MOUNT_DIR1"
+sudo umount "$MOUNT_DIR2"
+rmdir "$MOUNT_DIR1"
+rmdir "$MOUNT_DIR2"
+
+# 移除环回设备
+echo "移除环回设备..."
+sudo losetup -d "$LOOP_DEVICE"
+
+echo "操作完成！"
+# # 写入 U-Boot
+sudo dd if=u-boot-sunxi-with-spl.bin of="$IMG_FILE" bs=1024 seek=8
+sudo fdisk -l $IMG_FILE
+
+}
+
+
 pack() {
     echo "pack img..."
-    cd $PROJERCT_PATH
 
+    pack_rootfs
+
+    make_img 
     
    
 }
@@ -458,6 +574,7 @@ all_in_one() {
    config
    make_uboot
    make_kernel
+   pack
 }
 # 主函数
 main() {
